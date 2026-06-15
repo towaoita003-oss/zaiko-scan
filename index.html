@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>在庫スキャン</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 16px;
+      background: #f5f5f5;
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+    .card {
+      background: #fff;
+      padding: 14px;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+      font-weight: 700;
+    }
+    input, select, textarea, button {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 16px;
+      padding: 10px;
+      margin-top: 4px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+    button {
+      font-weight: 700;
+      border: 0;
+      background: #222;
+      color: #fff;
+      margin-top: 12px;
+    }
+    #reader {
+      background: #fff;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    #status {
+      font-weight: 700;
+      line-height: 1.6;
+    }
+    .small {
+      color: #666;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <h1>在庫スキャン</h1>
+
+  <div class="card">
+    <label>担当者</label>
+    <input id="user" placeholder="例：田中">
+
+    <label>処理</label>
+    <select id="action">
+      <option>持出</option>
+      <option>返却</option>
+      <option>納品</option>
+      <option>修理</option>
+      <option>棚卸</option>
+      <option>廃棄</option>
+    </select>
+
+    <label>目的</label>
+    <input id="purpose" placeholder="例：A社デモ、納品、修理確認">
+
+    <label>持出先・納品先・保管場所</label>
+    <input id="destination" placeholder="例：A社、倉庫、事務所">
+
+    <label>メモ</label>
+    <textarea id="note" rows="2" placeholder="付属品、状態など"></textarea>
+  </div>
+
+  <div class="card">
+    <div id="reader"></div>
+  </div>
+
+  <div class="card">
+    <div id="status">QRコードを読み取ってください。</div>
+    <div class="small">同じQRは3秒以内なら二重記録しません。</div>
+  </div>
+
+  <script>
+    // ★ここを自分のApps Script URLに変える
+    const WEB_APP_URL = '1_5-MzN2Ad3d84aBaLQ5YA2zYxmM-bXawXlsnyPRvDH8';
+
+    // ★Apps Script側のSECRETと同じ文字にする
+    const SECRET = 'pos-zaiko-2026-tanaka';
+
+    let lastText = '';
+    let lastTime = 0;
+
+    function getValue(id) {
+      return document.getElementById(id).value.trim();
+    }
+
+    function setStatus(message) {
+      document.getElementById('status').innerHTML =
+        new Date().toLocaleTimeString() + '<br>' + message;
+    }
+
+    function validate() {
+      if (!getValue('user')) {
+        setStatus('担当者を入力してください。');
+        return false;
+      }
+
+      if (!getValue('action')) {
+        setStatus('処理を選んでください。');
+        return false;
+      }
+
+      return true;
+    }
+
+    async function sendScan(assetId) {
+      if (!validate()) return;
+
+      const payload = {
+        secret: SECRET,
+        assetId: assetId,
+        user: getValue('user'),
+        action: getValue('action'),
+        purpose: getValue('purpose'),
+        destination: getValue('destination'),
+        note: getValue('note'),
+        clientTs: new Date().toISOString()
+      };
+
+      try {
+        await fetch(WEB_APP_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        setStatus('記録しました：<br>' + assetId + '<br>' + payload.action);
+
+        if (navigator.vibrate) {
+          navigator.vibrate(120);
+        }
+
+      } catch (err) {
+        setStatus('送信エラー：' + err);
+      }
+    }
+
+    function onScanSuccess(decodedText) {
+      const text = decodedText.trim();
+      const now = Date.now();
+
+      if (!text) return;
+
+      // 同じQRの連続読取を防ぐ
+      if (text === lastText && now - lastTime < 3000) {
+        return;
+      }
+
+      lastText = text;
+      lastTime = now;
+
+      sendScan(text);
+    }
+
+    function onScanFailure(error) {
+      // 読み取り失敗は毎秒大量に出るので無視
+    }
+
+    const scanner = new Html5QrcodeScanner(
+      'reader',
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        rememberLastUsedCamera: true,
+        supportedScanTypes: [
+          Html5QrcodeScanType.SCAN_TYPE_CAMERA
+        ]
+      },
+      false
+    );
+
+    scanner.render(onScanSuccess, onScanFailure);
+  </script>
+</body>
+</html>
