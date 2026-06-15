@@ -29,7 +29,7 @@
       margin-top: 10px;
       font-weight: 700;
     }
-    input, select, textarea, button {
+    input, select, textarea {
       width: 100%;
       box-sizing: border-box;
       font-size: 16px;
@@ -37,13 +37,6 @@
       margin-top: 4px;
       border-radius: 8px;
       border: 1px solid #ccc;
-    }
-    button {
-      font-weight: 700;
-      border: 0;
-      background: #222;
-      color: #fff;
-      margin-top: 12px;
     }
     #reader {
       background: #fff;
@@ -97,11 +90,8 @@
   </div>
 
   <script>
-    // ★ここを自分のApps Script URLに変える
-    const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz2HtyQLoU5cegPXqgIKNb9RqYTuuRsODoeWTu2W0IhgZPq3nJaN4RP7i0ZiqQ7ujie/exec';
-
-    // ★Apps Script側のSECRETと同じ文字にする
-    const SECRET = 'pos-zaiko-2026-tanaka';
+    const WEB_APP_URL = 'ここにApps ScriptのウェブアプリURLを入れる';
+    const SECRET = 'zaiko-test-001';
 
     let lastText = '';
     let lastTime = 0;
@@ -120,60 +110,93 @@
         setStatus('担当者を入力してください。');
         return false;
       }
-
-      if (!getValue('action')) {
-        setStatus('処理を選んでください。');
-        return false;
-      }
-
       return true;
     }
 
     function sendScan(assetId) {
-  if (!validate()) return;
+      if (!validate()) return;
 
-  const payload = {
-    secret: SECRET,
-    assetId: assetId,
-    user: getValue('user'),
-    action: getValue('action'),
-    purpose: getValue('purpose'),
-    destination: getValue('destination'),
-    note: getValue('note'),
-    clientTs: new Date().toISOString()
-  };
+      const payload = {
+        secret: SECRET,
+        assetId: assetId,
+        user: getValue('user'),
+        action: getValue('action'),
+        purpose: getValue('purpose'),
+        destination: getValue('destination'),
+        note: getValue('note'),
+        clientTs: new Date().toISOString()
+      };
 
-  const callbackName = 'zaikoCallback_' + Date.now();
+      const callbackName = 'zaikoCallback_' + Date.now();
 
-  window[callbackName] = function(result) {
-    delete window[callbackName];
+      const script = document.createElement('script');
 
-    if (script.parentNode) {
-      script.parentNode.removeChild(script);
+      window[callbackName] = function(result) {
+        delete window[callbackName];
+
+        if (script.parentNode) {
+          script.parentNode.removeChild(script);
+        }
+
+        if (result && result.ok) {
+          setStatus('記録しました：<br>' + result.assetId + '<br>' + result.action);
+
+          if (navigator.vibrate) {
+            navigator.vibrate(120);
+          }
+        } else {
+          setStatus('記録失敗：<br>' + (result && result.error ? result.error : '原因不明'));
+        }
+      };
+
+      script.src =
+        WEB_APP_URL +
+        '?callback=' + encodeURIComponent(callbackName) +
+        '&payload=' + encodeURIComponent(JSON.stringify(payload)) +
+        '&t=' + Date.now();
+
+      script.onerror = function() {
+        delete window[callbackName];
+        setStatus('送信エラー：Apps Script URLまたは公開設定を確認してください。');
+      };
+
+      document.body.appendChild(script);
     }
 
-    if (result && result.ok) {
-      setStatus('記録しました：<br>' + result.assetId + '<br>' + result.action);
+    function onScanSuccess(decodedText) {
+      const text = decodedText.trim();
+      const now = Date.now();
 
-      if (navigator.vibrate) {
-        navigator.vibrate(120);
+      if (!text) return;
+
+      if (text === lastText && now - lastTime < 3000) {
+        return;
       }
-    } else {
-      setStatus('記録失敗：<br>' + (result && result.error ? result.error : '原因不明'));
+
+      lastText = text;
+      lastTime = now;
+
+      sendScan(text);
     }
-  };
 
-  const script = document.createElement('script');
-  script.src =
-    WEB_APP_URL +
-    '?callback=' + encodeURIComponent(callbackName) +
-    '&payload=' + encodeURIComponent(JSON.stringify(payload)) +
-    '&t=' + Date.now();
+    function onScanFailure(error) {
+      // 読み取り失敗は無視
+    }
 
-  script.onerror = function() {
-    delete window[callbackName];
-    setStatus('送信エラー：Apps Script URLまたは公開設定を確認してください。');
-  };
+    const scanner = new Html5QrcodeScanner(
+      'reader',
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        rememberLastUsedCamera: true,
+        supportedScanTypes: [
+          Html5QrcodeScanType.SCAN_TYPE_CAMERA
+        ]
+      },
+      false
+    );
 
-  document.body.appendChild(script);
-}
+    scanner.render(onScanSuccess, onScanFailure);
+  </script>
+</body>
+</html>
