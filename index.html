@@ -129,76 +129,51 @@
       return true;
     }
 
-    async function sendScan(assetId) {
-      if (!validate()) return;
+    function sendScan(assetId) {
+  if (!validate()) return;
 
-      const payload = {
-        secret: SECRET,
-        assetId: assetId,
-        user: getValue('user'),
-        action: getValue('action'),
-        purpose: getValue('purpose'),
-        destination: getValue('destination'),
-        note: getValue('note'),
-        clientTs: new Date().toISOString()
-      };
+  const payload = {
+    secret: SECRET,
+    assetId: assetId,
+    user: getValue('user'),
+    action: getValue('action'),
+    purpose: getValue('purpose'),
+    destination: getValue('destination'),
+    note: getValue('note'),
+    clientTs: new Date().toISOString()
+  };
 
-      try {
-        await fetch(WEB_APP_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8'
-          },
-          body: JSON.stringify(payload)
-        });
+  const callbackName = 'zaikoCallback_' + Date.now();
 
-        setStatus('記録しました：<br>' + assetId + '<br>' + payload.action);
+  window[callbackName] = function(result) {
+    delete window[callbackName];
 
-        if (navigator.vibrate) {
-          navigator.vibrate(120);
-        }
+    if (script.parentNode) {
+      script.parentNode.removeChild(script);
+    }
 
-      } catch (err) {
-        setStatus('送信エラー：' + err);
+    if (result && result.ok) {
+      setStatus('記録しました：<br>' + result.assetId + '<br>' + result.action);
+
+      if (navigator.vibrate) {
+        navigator.vibrate(120);
       }
+    } else {
+      setStatus('記録失敗：<br>' + (result && result.error ? result.error : '原因不明'));
     }
+  };
 
-    function onScanSuccess(decodedText) {
-      const text = decodedText.trim();
-      const now = Date.now();
+  const script = document.createElement('script');
+  script.src =
+    WEB_APP_URL +
+    '?callback=' + encodeURIComponent(callbackName) +
+    '&payload=' + encodeURIComponent(JSON.stringify(payload)) +
+    '&t=' + Date.now();
 
-      if (!text) return;
+  script.onerror = function() {
+    delete window[callbackName];
+    setStatus('送信エラー：Apps Script URLまたは公開設定を確認してください。');
+  };
 
-      // 同じQRの連続読取を防ぐ
-      if (text === lastText && now - lastTime < 3000) {
-        return;
-      }
-
-      lastText = text;
-      lastTime = now;
-
-      sendScan(text);
-    }
-
-    function onScanFailure(error) {
-      // 読み取り失敗は毎秒大量に出るので無視
-    }
-
-    const scanner = new Html5QrcodeScanner(
-      'reader',
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-        rememberLastUsedCamera: true,
-        supportedScanTypes: [
-          Html5QrcodeScanType.SCAN_TYPE_CAMERA
-        ]
-      },
-      false
-    );
-
-    scanner.render(onScanSuccess, onScanFailure);
-  </script>
-</body>
-</html>
+  document.body.appendChild(script);
+}
