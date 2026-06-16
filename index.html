@@ -127,6 +127,7 @@
   let lastTime = 0;
   let isProcessing = false;
   let scanner = null;
+  let isScannerPaused = false;
 
   function getValue(id) {
     const el = document.getElementById(id);
@@ -179,8 +180,9 @@
 
   function pauseScanner() {
     try {
-      if (scanner && typeof scanner.pause === 'function') {
+      if (scanner && !isScannerPaused) {
         scanner.pause(true);
+        isScannerPaused = true;
       }
     } catch (e) {
       // pauseできない環境では無視
@@ -189,8 +191,9 @@
 
   function resumeScanner() {
     try {
-      if (scanner && typeof scanner.resume === 'function') {
+      if (scanner && isScannerPaused) {
         scanner.resume();
+        isScannerPaused = false;
       }
     } catch (e) {
       // resumeできない環境では無視
@@ -201,7 +204,8 @@
     setTimeout(function() {
       isProcessing = false;
       resumeScanner();
-    }, delayMs || 1500);
+      setStatus('次のQRを読み取れます。');
+    }, delayMs || 800);
   }
 
   function makeConfirmMessage(assetId) {
@@ -271,20 +275,18 @@
         setStatus(
           result.message + '：<br>' +
           result.assetId + '<br>' +
-          result.action + '<br><br>' +
-          '次のQRを読み取れます。'
+          result.action
         );
 
         if (navigator.vibrate) {
           navigator.vibrate(120);
         }
 
-        // 成功後すぐに同じQRを再読込しないよう少し待つ
-        resetScanLock(2500);
+        resetScanLock(1000);
 
       } else {
         setStatus('記録失敗：<br>' + (result && result.error ? result.error : '原因不明'));
-        resetScanLock(1500);
+        resetScanLock(800);
       }
     };
 
@@ -297,7 +299,7 @@
     script.onerror = function() {
       delete window[callbackName];
       setStatus('送信エラー：Apps Script URLまたは公開設定を確認してください。');
-      resetScanLock(1500);
+      resetScanLock(800);
     };
 
     document.body.appendChild(script);
@@ -309,13 +311,12 @@
 
     if (!text) return;
 
-    // 送信中・確認中は次の読み取りを完全に無視
     if (isProcessing) {
       return;
     }
 
     // 同じQRの短時間連続読取を無視
-    if (text === lastText && now - lastTime < 5000) {
+    if (text === lastText && now - lastTime < 2500) {
       return;
     }
 
@@ -325,10 +326,10 @@
 
     pauseScanner();
 
-    setStatus('読み取りました：<br>' + text + '<br>確認してください。');
+    setStatus('読み取りました：<br>' + text);
 
     if (!validate()) {
-      resetScanLock(1500);
+      resetScanLock(800);
       return;
     }
 
@@ -336,7 +337,7 @@
 
     if (!ok) {
       setStatus('キャンセルしました：<br>' + text);
-      resetScanLock(1000);
+      resetScanLock(600);
       return;
     }
 
@@ -348,22 +349,55 @@
     // 読み取り失敗は無視
   }
 
-  toggleFields();
+  async function startScanner() {
+    toggleFields();
 
-  scanner = new Html5QrcodeScanner(
-    'reader',
-    {
-      fps: 10,
-      qrbox: { width: 250, height: 250 },
-      rememberLastUsedCamera: true,
-      supportedScanTypes: [
-        Html5QrcodeScanType.SCAN_TYPE_CAMERA
-      ]
-    },
-    false
-  );
+    scanner = new Html5Qrcode(
+      'reader',
+      {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.QR_CODE
+        ]
+      },
+      false
+    );
 
-  scanner.render(onScanSuccess, onScanFailure);
+    const config = {
+      fps: 12,
+      qrbox: { width: 260, height: 260 },
+      aspectRatio: 1.7777778
+    };
+
+    try {
+      // 背面カメラを優先
+      await scanner.start(
+        { facingMode: { exact: 'environment' } },
+        config,
+        onScanSuccess,
+        onScanFailure
+      );
+
+      setStatus('背面カメラでQRを読み取れます。');
+
+    } catch (err) {
+      // exact指定が失敗するスマホ用の予備
+      try {
+        await scanner.start(
+          { facingMode: 'environment' },
+          config,
+          onScanSuccess,
+          onScanFailure
+        );
+
+        setStatus('背面カメラでQRを読み取れます。');
+
+      } catch (err2) {
+        setStatus('カメラを起動できません：<br>' + err2);
+      }
+    }
+  }
+
+  startScanner();
 </script>
 </body>
 </html>
