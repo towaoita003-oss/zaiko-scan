@@ -119,155 +119,251 @@
     <div class="small">同じQRは3秒以内なら二重記録しません。</div>
   </div>
 
-  <script>
-    const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz2HtyQLoU5cegPXqgIKNb9RqYTuuRsODoeWTu2W0IhgZPq3nJaN4RP7i0ZiqQ7ujie/exec';
-    const SECRET = 'zaiko-test-001';
+<script>
+  const WEB_APP_URL = 'ここにApps ScriptのウェブアプリURLを入れる';
+  const SECRET = 'zaiko-test-001';
 
-    let lastText = '';
-    let lastTime = 0;
+  let lastText = '';
+  let lastTime = 0;
+  let isProcessing = false;
+  let scanner = null;
 
-    function getValue(id) {
-      const el = document.getElementById(id);
-      return el ? el.value.trim() : '';
+  function getValue(id) {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : '';
+  }
+
+  function setStatus(message) {
+    document.getElementById('status').innerHTML =
+      new Date().toLocaleTimeString() + '<br>' + message;
+  }
+
+  function toggleFields() {
+    const action = getValue('action');
+    const receiveFields = document.getElementById('receiveFields');
+    const normalFields = document.getElementById('normalFields');
+
+    if (action === '入荷登録') {
+      receiveFields.classList.remove('hidden');
+      normalFields.classList.add('hidden');
+    } else {
+      receiveFields.classList.add('hidden');
+      normalFields.classList.remove('hidden');
     }
+  }
 
-    function setStatus(message) {
-      document.getElementById('status').innerHTML =
-        new Date().toLocaleTimeString() + '<br>' + message;
-    }
+  function validate() {
+    const action = getValue('action');
 
-    function toggleFields() {
-      const action = getValue('action');
-      const receiveFields = document.getElementById('receiveFields');
-      const normalFields = document.getElementById('normalFields');
-
-      if (action === '入荷登録') {
-        receiveFields.classList.remove('hidden');
-        normalFields.classList.add('hidden');
-      } else {
-        receiveFields.classList.add('hidden');
-        normalFields.classList.remove('hidden');
-      }
-    }
-
-    function validate() {
-      const action = getValue('action');
-
-      if (action === '入荷登録') {
-        if (!getValue('category')) {
-          setStatus('カテゴリを選んでください。');
-          return false;
-        }
-
-        if (!getValue('name')) {
-          setStatus('商品名を入力してください。');
-          return false;
-        }
-
-        return true;
+    if (action === '入荷登録') {
+      if (!getValue('category')) {
+        setStatus('カテゴリを選んでください。');
+        return false;
       }
 
-      if (action === '持出' && !getValue('user')) {
-        setStatus('持出時は担当者を入力してください。');
+      if (!getValue('name')) {
+        setStatus('商品名を入力してください。');
         return false;
       }
 
       return true;
     }
 
-    function sendScan(assetId) {
-      if (!validate()) return;
-
-      const payload = {
-        secret: SECRET,
-        assetId: assetId,
-        action: getValue('action'),
-        user: getValue('user'),
-        category: getValue('category'),
-        name: getValue('name'),
-        condition: getValue('condition'),
-        accessories: getValue('accessories'),
-        purpose: getValue('purpose'),
-        destination: getValue('destination'),
-        note: getValue('note'),
-        clientTs: new Date().toISOString()
-      };
-
-      const callbackName = 'zaikoCallback_' + Date.now();
-      const script = document.createElement('script');
-
-      window[callbackName] = function(result) {
-        delete window[callbackName];
-
-        if (script.parentNode) {
-          script.parentNode.removeChild(script);
-        }
-
-        if (result && result.ok) {
-          setStatus(
-            result.message + '：<br>' +
-            result.assetId + '<br>' +
-            result.action
-          );
-
-          if (navigator.vibrate) {
-            navigator.vibrate(120);
-          }
-        } else {
-          setStatus('記録失敗：<br>' + (result && result.error ? result.error : '原因不明'));
-        }
-      };
-
-      script.src =
-        WEB_APP_URL +
-        '?callback=' + encodeURIComponent(callbackName) +
-        '&payload=' + encodeURIComponent(JSON.stringify(payload)) +
-        '&t=' + Date.now();
-
-      script.onerror = function() {
-        delete window[callbackName];
-        setStatus('送信エラー：Apps Script URLまたは公開設定を確認してください。');
-      };
-
-      document.body.appendChild(script);
+    if (action === '持出' && !getValue('user')) {
+      setStatus('持出時は担当者を入力してください。');
+      return false;
     }
 
-    function onScanSuccess(decodedText) {
-      const text = decodedText.trim();
-      const now = Date.now();
+    return true;
+  }
 
-      if (!text) return;
+  function pauseScanner() {
+    try {
+      if (scanner && typeof scanner.pause === 'function') {
+        scanner.pause(true);
+      }
+    } catch (e) {
+      // pauseできない環境では無視
+    }
+  }
 
-      if (text === lastText && now - lastTime < 3000) {
-        return;
+  function resumeScanner() {
+    try {
+      if (scanner && typeof scanner.resume === 'function') {
+        scanner.resume();
+      }
+    } catch (e) {
+      // resumeできない環境では無視
+    }
+  }
+
+  function resetScanLock(delayMs) {
+    setTimeout(function() {
+      isProcessing = false;
+      resumeScanner();
+    }, delayMs || 1500);
+  }
+
+  function makeConfirmMessage(assetId) {
+    const action = getValue('action');
+
+    let message =
+      'この内容で記録しますか？\n\n' +
+      '管理番号：' + assetId + '\n' +
+      '処理：' + action;
+
+    if (action === '入荷登録') {
+      message +=
+        '\nカテゴリ：' + getValue('category') +
+        '\n商品名：' + getValue('name');
+
+      if (getValue('condition')) {
+        message += '\n状態：' + getValue('condition');
       }
 
-      lastText = text;
-      lastTime = now;
+      if (getValue('accessories')) {
+        message += '\n付属品：' + getValue('accessories');
+      }
+    } else {
+      if (getValue('user')) {
+        message += '\n担当者：' + getValue('user');
+      }
 
-      sendScan(text);
+      if (getValue('purpose')) {
+        message += '\n目的：' + getValue('purpose');
+      }
+
+      if (getValue('destination')) {
+        message += '\n持出先・納品先：' + getValue('destination');
+      }
     }
 
-    function onScanFailure(error) {
-      // 読み取り失敗は無視
+    return message;
+  }
+
+  function sendScan(assetId) {
+    const payload = {
+      secret: SECRET,
+      assetId: assetId,
+      action: getValue('action'),
+      user: getValue('user'),
+      category: getValue('category'),
+      name: getValue('name'),
+      condition: getValue('condition'),
+      accessories: getValue('accessories'),
+      purpose: getValue('purpose'),
+      destination: getValue('destination'),
+      note: getValue('note'),
+      clientTs: new Date().toISOString()
+    };
+
+    const callbackName = 'zaikoCallback_' + Date.now();
+    const script = document.createElement('script');
+
+    window[callbackName] = function(result) {
+      delete window[callbackName];
+
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+
+      if (result && result.ok) {
+        setStatus(
+          result.message + '：<br>' +
+          result.assetId + '<br>' +
+          result.action + '<br><br>' +
+          '次のQRを読み取れます。'
+        );
+
+        if (navigator.vibrate) {
+          navigator.vibrate(120);
+        }
+
+        // 成功後すぐに同じQRを再読込しないよう少し待つ
+        resetScanLock(2500);
+
+      } else {
+        setStatus('記録失敗：<br>' + (result && result.error ? result.error : '原因不明'));
+        resetScanLock(1500);
+      }
+    };
+
+    script.src =
+      WEB_APP_URL +
+      '?callback=' + encodeURIComponent(callbackName) +
+      '&payload=' + encodeURIComponent(JSON.stringify(payload)) +
+      '&t=' + Date.now();
+
+    script.onerror = function() {
+      delete window[callbackName];
+      setStatus('送信エラー：Apps Script URLまたは公開設定を確認してください。');
+      resetScanLock(1500);
+    };
+
+    document.body.appendChild(script);
+  }
+
+  function onScanSuccess(decodedText) {
+    const text = decodedText.trim();
+    const now = Date.now();
+
+    if (!text) return;
+
+    // 送信中・確認中は次の読み取りを完全に無視
+    if (isProcessing) {
+      return;
     }
 
-    toggleFields();
+    // 同じQRの短時間連続読取を無視
+    if (text === lastText && now - lastTime < 5000) {
+      return;
+    }
 
-    const scanner = new Html5QrcodeScanner(
-      'reader',
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-        rememberLastUsedCamera: true,
-        supportedScanTypes: [
-          Html5QrcodeScanType.SCAN_TYPE_CAMERA
-        ]
-      },
-      false
-    );
+    isProcessing = true;
+    lastText = text;
+    lastTime = now;
 
-    scanner.render(onScanSuccess, onScanFailure);
-  </script>
+    pauseScanner();
+
+    setStatus('読み取りました：<br>' + text + '<br>確認してください。');
+
+    if (!validate()) {
+      resetScanLock(1500);
+      return;
+    }
+
+    const ok = window.confirm(makeConfirmMessage(text));
+
+    if (!ok) {
+      setStatus('キャンセルしました：<br>' + text);
+      resetScanLock(1000);
+      return;
+    }
+
+    setStatus('送信中：<br>' + text);
+    sendScan(text);
+  }
+
+  function onScanFailure(error) {
+    // 読み取り失敗は無視
+  }
+
+  toggleFields();
+
+  scanner = new Html5QrcodeScanner(
+    'reader',
+    {
+      fps: 6,
+      qrbox: { width: 250, height: 250 },
+      rememberLastUsedCamera: true,
+      supportedScanTypes: [
+        Html5QrcodeScanType.SCAN_TYPE_CAMERA
+      ]
+    },
+    false
+  );
+
+  scanner.render(onScanSuccess, onScanFailure);
+</script>
 </body>
 </html>
