@@ -51,17 +51,18 @@
       color: #666;
       font-size: 13px;
     }
+    .hidden {
+      display: none;
+    }
   </style>
 </head>
 <body>
   <h1>在庫スキャン</h1>
 
   <div class="card">
-    <label>担当者</label>
-    <input id="user" placeholder="例：田中">
-
     <label>処理</label>
-    <select id="action">
+    <select id="action" onchange="toggleFields()">
+      <option>入荷登録</option>
       <option>持出</option>
       <option>返却</option>
       <option>納品</option>
@@ -70,14 +71,43 @@
       <option>廃棄</option>
     </select>
 
-    <label>目的</label>
-    <input id="purpose" placeholder="例：A社デモ、納品、修理確認">
+    <div id="receiveFields">
+      <label>カテゴリ 必須</label>
+      <select id="category">
+        <option value="">選択してください</option>
+        <option>POS本体</option>
+        <option>テーブルオーダー端末</option>
+        <option>プリンタ</option>
+        <option>キャッシュドロア</option>
+        <option>ルーター</option>
+        <option>ハンディ端末</option>
+        <option>充電器・ケーブル</option>
+        <option>その他</option>
+      </select>
 
-    <label>持出先・納品先・保管場所</label>
-    <input id="destination" placeholder="例：A社、倉庫、事務所">
+      <label>商品名 必須</label>
+      <input id="name" placeholder="例：東芝POS、iPad、レシートプリンタ">
 
-    <label>メモ</label>
-    <textarea id="note" rows="2" placeholder="付属品、状態など"></textarea>
+      <label>状態 任意</label>
+      <input id="condition" placeholder="例：動作品、未確認、ジャンク">
+
+      <label>付属品メモ 任意</label>
+      <textarea id="accessories" rows="2" placeholder="例：ACアダプタあり、鍵なし、スタンド付き"></textarea>
+    </div>
+
+    <div id="normalFields" class="hidden">
+      <label>担当者</label>
+      <input id="user" placeholder="例：田中">
+
+      <label>目的</label>
+      <input id="purpose" placeholder="例：A社デモ、納品、修理確認">
+
+      <label>持出先・納品先</label>
+      <input id="destination" placeholder="例：A社、現場名">
+
+      <label>メモ</label>
+      <textarea id="note" rows="2" placeholder="状態変化、注意点など"></textarea>
+    </div>
   </div>
 
   <div class="card">
@@ -91,13 +121,14 @@
 
   <script>
     const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz2HtyQLoU5cegPXqgIKNb9RqYTuuRsODoeWTu2W0IhgZPq3nJaN4RP7i0ZiqQ7ujie/exec';
-    const SECRET = 'pos-zaiko-2026-tanaka';
+    const SECRET = 'zaiko-test-001';
 
     let lastText = '';
     let lastTime = 0;
 
     function getValue(id) {
-      return document.getElementById(id).value.trim();
+      const el = document.getElementById(id);
+      return el ? el.value.trim() : '';
     }
 
     function setStatus(message) {
@@ -105,11 +136,42 @@
         new Date().toLocaleTimeString() + '<br>' + message;
     }
 
+    function toggleFields() {
+      const action = getValue('action');
+      const receiveFields = document.getElementById('receiveFields');
+      const normalFields = document.getElementById('normalFields');
+
+      if (action === '入荷登録') {
+        receiveFields.classList.remove('hidden');
+        normalFields.classList.add('hidden');
+      } else {
+        receiveFields.classList.add('hidden');
+        normalFields.classList.remove('hidden');
+      }
+    }
+
     function validate() {
-      if (!getValue('user')) {
-        setStatus('担当者を入力してください。');
+      const action = getValue('action');
+
+      if (action === '入荷登録') {
+        if (!getValue('category')) {
+          setStatus('カテゴリを選んでください。');
+          return false;
+        }
+
+        if (!getValue('name')) {
+          setStatus('商品名を入力してください。');
+          return false;
+        }
+
+        return true;
+      }
+
+      if (action === '持出' && !getValue('user')) {
+        setStatus('持出時は担当者を入力してください。');
         return false;
       }
+
       return true;
     }
 
@@ -119,8 +181,12 @@
       const payload = {
         secret: SECRET,
         assetId: assetId,
-        user: getValue('user'),
         action: getValue('action'),
+        user: getValue('user'),
+        category: getValue('category'),
+        name: getValue('name'),
+        condition: getValue('condition'),
+        accessories: getValue('accessories'),
         purpose: getValue('purpose'),
         destination: getValue('destination'),
         note: getValue('note'),
@@ -128,7 +194,6 @@
       };
 
       const callbackName = 'zaikoCallback_' + Date.now();
-
       const script = document.createElement('script');
 
       window[callbackName] = function(result) {
@@ -139,7 +204,11 @@
         }
 
         if (result && result.ok) {
-          setStatus('記録しました：<br>' + result.assetId + '<br>' + result.action);
+          setStatus(
+            result.message + '：<br>' +
+            result.assetId + '<br>' +
+            result.action
+          );
 
           if (navigator.vibrate) {
             navigator.vibrate(120);
@@ -182,6 +251,8 @@
     function onScanFailure(error) {
       // 読み取り失敗は無視
     }
+
+    toggleFields();
 
     const scanner = new Html5QrcodeScanner(
       'reader',
